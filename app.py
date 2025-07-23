@@ -17,8 +17,8 @@ cred_file = os.environ.get("GOOGLE_SHEETS_JSON", "credenciales.json")
 creds = ServiceAccountCredentials.from_json_keyfile_name(cred_file, scope)
 client = gspread.authorize(creds)
 
-sheet_mov = client.open("Inventario").worksheet("Movimientos")
-sheet_inv = client.open("Inventario").worksheet("Inventario")
+sheet_mov = client.open("Almacen").worksheet("Movimientos")
+sheet_inv = client.open("Almacen").worksheet("Inventario")
 
 # Manejo de mensajes
 @bot.message_handler(commands=['start'])
