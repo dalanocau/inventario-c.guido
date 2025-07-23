@@ -1,12 +1,12 @@
 import os
 import telebot
-from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
 # --- CONFIGURACIÓN ---
-TOKEN = '7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE'  # Reemplaza con tu token real
+TOKEN = 'TU_TOKEN_REAL_AQUÍ'  # Reemplaza esto con tu token
 bot = telebot.TeleBot(TOKEN)
 
 WEBHOOK_URL = f"https://inventario-c-guido.onrender.com/{TOKEN}"
@@ -17,22 +17,21 @@ bot.set_webhook(url=WEBHOOK_URL)
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
 client = gspread.authorize(creds)
-sheet_mov = client.open("Almacen").worksheet("Movimientos")
-sheet_inv = client.open("Almacen").worksheet("Inventario")
+sheet = client.open("Almacen")
+sheet_inv = sheet.worksheet("Inventario")
+sheet_mov = sheet.worksheet("Movimientos")
 
-# --- FLASK ---
+# --- FLASK APP ---
 app = Flask(__name__)
-
 @app.route('/')
 def index():
     inventario_raw = sheet_inv.get_all_records()
-    # Eliminar la clave "Ultima Actualización" si existe
     inventario = [
         {k: v for k, v in row.items() if k.lower() != "ultima actualización"}
         for row in inventario_raw
     ]
 
-    TEMPLATE = """
+   TEMPLATE = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -246,19 +245,59 @@ def index():
     </body>
     </html>
     """
-
     return render_template_string(TEMPLATE, inventario=inventario)
+
+@app.route('/data')
+def data():
+    inventario = sheet_inv.get_all_records()
+    movimientos = sheet_mov.get_all_records()
+
+    inv_data = []
+    for row in inventario:
+        if "Producto" in row and "Stock" in row:
+            try:
+                inv_data.append({
+                    "Producto": row["Producto"],
+                    "Stock": int(row["Stock"])
+                })
+            except:
+                pass
+
+    ventas_diarias = {}
+    for mov in movimientos:
+        if mov["Tipo"].upper() == "SALIDA":
+            fecha = mov["Fecha"]
+            cantidad = int(mov["Cantidad"])
+            ventas_diarias[fecha] = ventas_diarias.get(fecha, 0) + cantidad
+
+    ventas_diarias_list = [{"fecha": k, "total": v} for k, v in sorted(ventas_diarias.items())]
+
+    return jsonify({
+        "inventario": inv_data,
+        "ventas_diarias": ventas_diarias_list
+    })
+
+@app.route('/detalle/<fecha>')
+def detalle_fecha(fecha):
+    movimientos = sheet_mov.get_all_records()
+    detalle = {}
+
+    for mov in movimientos:
+        if mov["Tipo"].upper() == "SALIDA" and mov["Fecha"] == fecha:
+            producto = mov["Producto"]
+            cantidad = int(mov["Cantidad"])
+            detalle[producto] = detalle.get(producto, 0) + cantidad
+
+    detalle_list = [{"producto": k, "cantidad": v} for k, v in detalle.items()]
+    return jsonify(detalle_list)
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
     bot.process_new_updates([update])
     return "OK", 200
-
-# --- ESTADO DE USUARIOS ---
 user_states = {}
 
-# --- MANEJADOR PRINCIPAL ---
 @bot.message_handler(func=lambda m: True)
 def bot_handler(message):
     user_id = message.from_user.id
@@ -280,7 +319,6 @@ def bot_handler(message):
         return
 
     bot.send_message(user_id, "Escribe 'Hola run' para comenzar o 'Hola Total' para ver el inventario.")
-
 def manejar_flujo(message, user_id, text):
     estado = user_states[user_id]
     
@@ -290,7 +328,7 @@ def manejar_flujo(message, user_id, text):
             return
         estado["tipo"] = text
         estado["estado"] = "producto"
-        productos = list(set(sheet_inv.col_values(1)[1:]))  # Únicos sin encabezado
+        productos = list(set(sheet_inv.col_values(1)[1:]))
         markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
         for p in productos:
             markup.add(p)
@@ -300,7 +338,7 @@ def manejar_flujo(message, user_id, text):
         estado["producto"] = text
         estado["estado"] = "cantidad"
         bot.send_message(user_id, f"¿Cuántas unidades de '{text}'?")
-    
+
     elif estado["estado"] == "cantidad":
         try:
             cantidad = int(text)
@@ -353,14 +391,11 @@ def mostrar_totales(message):
     total = 0
     detalle = []
     for fila in datos:
-        nombre = fila['Producto'] if 'Producto' in fila else fila.get('producto', '¿?')
-        stock = int(fila['Stock']) if 'Stock' in fila else int(fila.get('stock', 0))
+        nombre = fila.get('Producto', '¿?')
+        stock = int(fila.get('Stock', 0))
         total += stock
         detalle.append(f"{nombre}: {stock}")
     mensaje = f"📦 *Total stock:* {total}\n\n" + "\n".join(detalle)
     bot.send_message(message.chat.id, mensaje, parse_mode="Markdown")
-
-# --- INICIO ---
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-
