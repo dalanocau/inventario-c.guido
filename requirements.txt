@@ -4,3 +4,4 @@ gspread
 pandas
 google-auth
 oauth2client
+pyTelegramBotAPI
