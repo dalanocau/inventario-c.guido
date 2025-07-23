@@ -5,24 +5,23 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# --- TOKEN DEL BOT Y WEBHOOK ---
+# --- TOKEN Y WEBHOOK ---
 TOKEN = '7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE'
 bot = telebot.TeleBot(TOKEN)
-
 WEBHOOK_URL = f"https://inventario-c-guido.onrender.com/{TOKEN}"
+
 bot.remove_webhook()
 bot.set_webhook(url=WEBHOOK_URL)
 
-# --- AUTENTICACIÓN GOOGLE SHEETS ---
+# --- GOOGLE SHEETS ---
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
 client = gspread.authorize(creds)
 
-# --- Acceso a hojas ---
 sheet_mov = client.open("Almacen").worksheet("Movimientos")
 sheet_inv = client.open("Almacen").worksheet("Inventario")
 
-# --- APP FLASK ---
+# --- FLASK APP ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -33,31 +32,26 @@ def index():
 
     template = """
     <!DOCTYPE html>
-    <html>
-    <head>
+    <html><head>
         <title>Inventario</title>
         <style>
-            body { font-family: Arial; padding: 20px; background: #f9f9f9; }
-            table { border-collapse: collapse; width: 100%; background: white; }
+            body { font-family: Arial; padding: 20px; background: #f4f4f4; }
+            table { border-collapse: collapse; width: 100%; background: #fff; }
             th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
             th { background-color: #4CAF50; color: white; }
             tr:hover { background-color: #f1f1f1; }
         </style>
-    </head>
-    <body>
-        <h2>Inventario Actual</h2>
+    </head><body>
+        <h2>Inventario</h2>
         <table>
-            <thead>
-                <tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}</tr>
-            </thead>
+            <thead><tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}</tr></thead>
             <tbody>
                 {% for row in rows %}
                 <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
                 {% endfor %}
             </tbody>
         </table>
-    </body>
-    </html>
+    </body></html>
     """
     return render_template_string(template, headers=headers, rows=rows)
 
@@ -67,50 +61,90 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-# --- BOT MANEJA MENSAJES ---
+# --- DICCIONARIO DE SESIONES ---
+usuarios = {}
+
+# --- MANEJO MENSAJES ---
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
+    user_id = message.chat.id
     text = message.text.strip()
-    tipo = None
 
-    if text.upper().startswith("ENTRADA:"):
-        tipo = "ENTRADA"
-    elif text.upper().startswith("SALIDA:"):
-        tipo = "SALIDA"
+    if text.lower() == "hola run":
+        markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.add("ENTRADA", "SALIDA")
+        bot.send_message(user_id, "¿Qué deseas registrar?", reply_markup=markup)
+        usuarios[user_id] = {"estado": "esperando_tipo"}
+        return
 
-    if tipo:
-        try:
-            contenido = text.split(":", 1)[1].strip()
-            partes = [x.strip() for x in contenido.split(",")]
+    if user_id not in usuarios:
+        bot.send_message(user_id, "Escribe 'Hola run' para empezar.")
+        return
 
-            if len(partes) != 3:
-                bot.reply_to(message, "Formato incorrecto. Usa:\nENTRADA: Producto, cantidad, origen")
-                return
+    estado = usuarios[user_id].get("estado")
 
-            producto, cantidad, origen = partes
-            cantidad = int(cantidad)
+    if estado == "esperando_tipo":
+        if text.upper() in ["ENTRADA", "SALIDA"]:
+            usuarios[user_id]["tipo"] = text.upper()
+            productos = sheet_inv.col_values(1)[1:]
+            markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+            for p in productos:
+                markup.add(p)
+            bot.send_message(user_id, "Selecciona un producto:", reply_markup=markup)
+            usuarios[user_id]["estado"] = "esperando_producto"
+        else:
+            bot.send_message(user_id, "Por favor elige ENTRADA o SALIDA.")
+        return
 
-            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            fila = [fecha, producto, cantidad, tipo, origen]
-            sheet_mov.append_row(fila)
+    if estado == "esperando_producto":
+        usuarios[user_id]["producto"] = text
+        usuarios[user_id]["estado"] = "esperando_cantidad"
+        bot.send_message(user_id, "¿Cuántos deseas registrar?")
+        return
 
-            celdas = sheet_inv.col_values(1)
-            if producto in celdas:
-                idx = celdas.index(producto) + 1
-                stock_actual = int(sheet_inv.cell(idx, 2).value)
-                nuevo_stock = stock_actual + cantidad if tipo == "ENTRADA" else stock_actual - cantidad
-                sheet_inv.update_cell(idx, 2, nuevo_stock)
-            else:
-                nuevo_stock = cantidad if tipo == "ENTRADA" else -cantidad
-                sheet_inv.append_row([producto, nuevo_stock])
+    if estado == "esperando_cantidad":
+        if not text.isdigit():
+            bot.send_message(user_id, "Por favor ingresa un número válido.")
+            return
+        usuarios[user_id]["cantidad"] = int(text)
+        usuarios[user_id]["estado"] = "esperando_origen"
+        bot.send_message(user_id, "¿Cuál es el origen?")
+        return
 
-            bot.reply_to(message, f"{tipo} registrada correctamente para {producto}. Stock actual: {nuevo_stock}")
+    if estado == "esperando_origen":
+        usuarios[user_id]["origen"] = text
+        datos = usuarios[user_id]
 
-        except Exception as e:
-            bot.reply_to(message, f"Error: {e}")
-    else:
-        bot.reply_to(message, "Formato no reconocido. Usa:\nENTRADA: Producto, cantidad, origen\nSALIDA: Producto, cantidad, origen")
+        # Registrar en hoja
+        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        fila = [fecha, datos["producto"], datos["cantidad"], datos["tipo"], datos["origen"]]
+        sheet_mov.append_row(fila)
+
+        # Actualizar inventario
+        celdas = sheet_inv.col_values(1)
+        if datos["producto"] in celdas:
+            idx = celdas.index(datos["producto"]) + 1
+            stock_actual = int(sheet_inv.cell(idx, 2).value)
+            nuevo_stock = stock_actual + datos["cantidad"] if datos["tipo"] == "ENTRADA" else stock_actual - datos["cantidad"]
+            sheet_inv.update_cell(idx, 2, nuevo_stock)
+        else:
+            nuevo_stock = datos["cantidad"] if datos["tipo"] == "ENTRADA" else -datos["cantidad"]
+            sheet_inv.append_row([datos["producto"], nuevo_stock])
+
+        resumen = f"""✅ {datos['tipo']} registrada
+📦 Producto: {datos['producto']}
+🔢 Cantidad: {datos['cantidad']}
+📍 Origen: {datos['origen']}
+📆 Fecha: {fecha}
+📊 Stock actual: {nuevo_stock}"""
+
+        bot.send_message(user_id, resumen)
+        usuarios.pop(user_id, None)
+        return
+
+    bot.send_message(user_id, "Escribe 'Hola run' para iniciar.")
 
 # --- INICIO ---
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
