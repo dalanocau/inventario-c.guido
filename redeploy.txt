@@ -1,1 +1,0 @@
-Forzando redeploy para que Render lea runtime.txt
