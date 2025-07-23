@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify, render_template_string
 import pandas as pd
 import gspread
@@ -6,7 +5,7 @@ import os
 from google.oauth2.service_account import Credentials
 import datetime
 
-# Variables de entorno necesarias: GOOGLE_SHEETS_JSON
+# Cargar las credenciales desde variable de entorno
 json_str = os.environ.get("GOOGLE_SHEETS_JSON")
 with open("service_account.json", "w") as f:
     f.write(json_str)
@@ -15,14 +14,27 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 credenciales = Credentials.from_service_account_file("service_account.json", scopes=scope)
 cliente = gspread.authorize(credenciales)
 
-sheet = cliente.open("INVENTARIO_MICROEMPRESA")
-worksheet = sheet.worksheet("INVENTARIO")
-data = worksheet.get_all_records()
-df = pd.DataFrame(data)
+# Intentar abrir el archivo y cargar las hojas
+try:
+    sheet = cliente.open("Almacen")
+    inventario_ws = sheet.worksheet("Inventario")
+    movimientos_ws = sheet.worksheet("Movimientos")
+except gspread.exceptions.SpreadsheetNotFound:
+    print("❌ No se encontró el archivo 'Almacen'.")
+    sheet = None
+except gspread.exceptions.WorksheetNotFound:
+    print("❌ No se encontró alguna de las hojas 'Inventario' o 'Movimientos'.")
+    inventario_ws = None
+    movimientos_ws = None
 
-df["Precio"] = df["Precio"].astype(float)
-df["Stock"] = df["Stock"].astype(int)
-df["Última Actualización"] = pd.to_datetime(df["Última Actualización"], errors='coerce')
+# Leer datos del inventario
+df = pd.DataFrame()
+if inventario_ws:
+    data = inventario_ws.get_all_records()
+    df = pd.DataFrame(data)
+    df["Precio"] = df["Precio"].astype(float)
+    df["Stock"] = df["Stock"].astype(int)
+    df["Última Actualización"] = pd.to_datetime(df["Última Actualización"], errors='coerce')
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang='es'>
@@ -91,9 +103,8 @@ def home():
 @app.route('/data')
 def data():
     ventas_diarias = []
-    if "VENTAS" in [ws.title for ws in sheet.worksheets()]:
-        ventas_ws = sheet.worksheet("VENTAS")
-        ventas_data = ventas_ws.get_all_records()
+    if movimientos_ws:
+        ventas_data = movimientos_ws.get_all_records()
         df_ventas = pd.DataFrame(ventas_data)
         if "Fecha" in df_ventas.columns and "Cantidad" in df_ventas.columns:
             df_ventas["Fecha"] = pd.to_datetime(df_ventas["Fecha"], errors='coerce')
