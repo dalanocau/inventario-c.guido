@@ -12,7 +12,7 @@ import requests
 app = Flask(__name__)
 CORS(app)
 
-TOKEN = os.getenv("TELEGRAM_TOKEN") or "AQUI_VA_TU_TOKEN"
+TOKEN = os.getenv("TELEGRAM_TOKEN") or "7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
 # Configuración Google Sheets
