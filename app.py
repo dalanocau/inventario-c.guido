@@ -4,6 +4,7 @@ from flask import Flask, request, render_template_string
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import pytz
 
 # --- CONFIGURACIÓN ---
 TOKEN = '7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE'  # Reemplaza con tu token real
@@ -19,6 +20,9 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", sc
 client = gspread.authorize(creds)
 sheet_mov = client.open("Almacen").worksheet("Movimientos")
 sheet_inv = client.open("Almacen").worksheet("Inventario")
+
+# --- ZONA HORARIA LIMA ---
+zona_lima = pytz.timezone('America/Lima')  # <-- [NUEVO] Define zona horaria de Lima
 
 # --- FLASK ---
 app = Flask(__name__)
@@ -125,7 +129,7 @@ def manejar_flujo(message, user_id, text):
         cantidad = estado["cantidad"]
         origen = estado["origen"]
         tipo = estado["tipo"]
-        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        fecha = datetime.now(zona_lima).strftime("%Y-%m-%d %H:%M:%S")  # <-- [CAMBIO] Hora Lima
         productos = sheet_inv.col_values(1)
 
         if producto in productos:
@@ -150,7 +154,7 @@ def manejar_flujo(message, user_id, text):
             p = estado["producto"]
             c = estado["cantidad"]
             o = estado["origen"]
-            f = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f = datetime.now(zona_lima).strftime("%Y-%m-%d %H:%M:%S")  # <-- [CAMBIO] Hora Lima
             sheet_inv.append_row([p, c])
             sheet_mov.append_row([f, p, c, "ENTRADA", o])
             bot.send_message(user_id, f"Producto '{p}' agregado al inventario con {c} unidades.")
