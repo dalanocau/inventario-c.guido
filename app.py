@@ -132,7 +132,8 @@ def manejar_flujo(message, user_id, text):
             idx = productos.index(producto) + 1
             stock_actual = int(sheet_inv.cell(idx, 2).value)
             nuevo_stock = stock_actual + cantidad if tipo == "ENTRADA" else stock_actual - cantidad
-            sheet_inv.update_cell(idx, 2, nuevo_stock)
+            sheet_inv.update_cell(idx, 2, nuevo_stock)  # Actualiza stock
+            sheet_inv.update_cell(idx, 4, fecha)        # Columna 4 = Última Actualización
             sheet_mov.append_row([fecha, producto, cantidad, tipo, origen])
             bot.send_message(user_id, f"{tipo} registrada para {producto}. Stock actual: {nuevo_stock}")
             del user_states[user_id]
