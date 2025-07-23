@@ -8,7 +8,7 @@ from flask_cors import CORS
 import telebot
 
 # === CONFIGURACIONES ===
-TOKEN = 'TU_TOKEN_DEL_BOT'  # <-- REEMPLAZA con el token real
+TOKEN = '7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE'  # <-- REEMPLAZA con el token real
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 CORS(app)
