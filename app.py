@@ -25,38 +25,229 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
-    inventario = sheet_inv.get_all_values()
-    headers = inventario[0]
-    rows = inventario[1:]
-    template = """
+    inventario_raw = sheet_inv.get_all_records()
+    # Eliminar la clave "Ultima Actualización" si existe
+    inventario = [
+        {k: v for k, v in row.items() if k.lower() != "ultima actualización"}
+        for row in inventario_raw
+    ]
+
+    TEMPLATE = """
     <!DOCTYPE html>
     <html>
     <head>
         <title>Inventario</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
         <style>
-            body { font-family: Arial; padding: 20px; background: #f9f9f9; }
-            table { border-collapse: collapse; width: 100%; background: white; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #4CAF50; color: white; }
-            tr:hover { background-color: #f1f1f1; }
+            body { font-family: sans-serif; padding: 20px; }
+            table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
+            table { width: 100%; margin-bottom: 30px; }
+            canvas { margin: 20px 0; }
+            .flex-container {
+                display: flex;
+                gap: 30px;
+                height: 400px;
+            }
+            .chart-small { height: 200px !important; }
+            .chart-tall { height: 300px !important; }
         </style>
     </head>
     <body>
-        <h2>Inventario Actual</h2>
+        <h2>📦 Inventario Comercial Guido</h2>
         <table>
-            <thead>
-                <tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}</tr>
-            </thead>
-            <tbody>
-                {% for row in rows %}
-                <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+            <tr>
+                {% for key in inventario[0].keys() %}
+                <th>{{ key }}</th>
                 {% endfor %}
-            </tbody>
+            </tr>
+            {% for row in inventario %}
+            <tr>
+                {% for value in row.values() %}
+                <td>{{ value }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
         </table>
+
+        <div class="flex-container">
+            <div style="flex: 3;">
+                <canvas id="barrasInventario"></canvas>
+            </div>
+            <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
+                <canvas id="totalInventario"></canvas>
+            </div>
+        </div>
+
+        <h2>📈 Ventas Diarias</h2>
+        <canvas id="lineaVentas" height="120"></canvas>
+
+        <h3>Detalle del día seleccionado:</h3>
+        <div style="overflow-x: auto;">
+            <canvas id="detallePorProducto" class="chart-tall" style="min-width: 600px; width: 100%;"></canvas>
+        </div>
+
+    <script>
+    async function cargarDatos() {
+        const resp = await fetch('/data');
+        const datos = await resp.json();
+
+        const productos = datos.inventario.map(x => x.Producto);
+        const stocks = datos.inventario.map(x => x.Stock);
+        const totalInventario = stocks.reduce((acc, s) => acc + s, 0);
+        const maxStock = Math.max(...stocks);
+        const maxAjustado = Math.ceil(maxStock * 1.1);
+
+        new Chart(document.getElementById('barrasInventario'), {
+            type: 'bar',
+            data: {
+                labels: productos,
+                datasets: [{ label: 'Stock', data: stocks, backgroundColor: 'skyblue' }]
+            },
+            options: {
+                indexAxis: 'y',
+                layout: {
+                    padding: { top: 20, bottom: 20, left: 10, right: 10 }
+                },
+                plugins: {
+                    datalabels: {
+                        anchor: 'end',
+                        align: 'right',
+                        formatter: value => value,
+                        color: '#333',
+                        font: { weight: 'bold' }
+                    }
+                },
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { beginAtZero: true, max: maxAjustado }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+
+        new Chart(document.getElementById('totalInventario'), {
+            type: 'bar',
+            data: {
+                labels: ['Total Inventario'],
+                datasets: [{
+                    label: 'Unidades',
+                    data: [totalInventario],
+                    backgroundColor: 'green'
+                }]
+            },
+            options: {
+                indexAxis: 'x',
+                layout: {
+                    padding: { top: 20, bottom: 20, left: 10, right: 10 }
+                },
+                plugins: {
+                    datalabels: {
+                        anchor: 'end',
+                        align: 'end',
+                        formatter: value => value,
+                        color: '#fff',
+                        font: { weight: 'bold', size: 16 }
+                    }
+                },
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: Math.ceil(totalInventario * 1.1)
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+
+        const fechas = datos.ventas_diarias.map(x => x.fecha);
+        const unidades = datos.ventas_diarias.map(x => x.total);
+
+        const chartLine = new Chart(document.getElementById('lineaVentas'), {
+            type: 'line',
+            data: {
+                labels: fechas,
+                datasets: [{
+                    label: 'Unidades vendidas',
+                    data: unidades,
+                    borderColor: 'blue',
+                    fill: false
+                }]
+            },
+            options: {
+                onClick: (evt, elements) => {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const fechaSeleccionada = fechas[index];
+                        actualizarDetalle(fechaSeleccionada);
+                    }
+                }
+            }
+        });
+
+        if (fechas.length > 0) {
+            actualizarDetalle(fechas[fechas.length - 1]);
+        }
+    }
+
+    async function actualizarDetalle(fecha) {
+        const resp = await fetch('/detalle/' + fecha);
+        const datos = await resp.json();
+
+        const ctx = document.getElementById('detallePorProducto').getContext('2d');
+        if (window.detalleChart) {
+            window.detalleChart.destroy();
+        }
+
+        window.detalleChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: datos.map(x => x.producto),
+                datasets: [{
+                    label: 'Unidades vendidas',
+                    data: datos.map(x => x.cantidad),
+                    backgroundColor: 'orange'
+                }]
+            },
+            options: {
+                layout: {
+                    padding: { top: 20, bottom: 20, left: 10, right: 10 }
+                },
+                plugins: {
+                    datalabels: {
+                        anchor: 'end',
+                        align: 'top',
+                        formatter: value => value,
+                        color: '#000',
+                        font: { weight: 'bold' }
+                    }
+                },
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    cargarDatos();
+    </script>
+
     </body>
     </html>
     """
-    return render_template_string(template, headers=headers, rows=rows)
+
+    return render_template_string(TEMPLATE, inventario=inventario)
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
