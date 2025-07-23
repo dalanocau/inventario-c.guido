@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "inventariomicroempresa",
+  "private_key_id": "381f0df8f062876b8d56af795c19e16a58b2c55b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDdOb+ZOrQF18qI\nqIG0FeJdyt1Hy20A8nVYuIFMmS81lZaNAAn4W2zN4yS5zjzkWz3+yU/XpaZHHNmO\nB6g3A9eITfCvnq+8nTWTBicHFKwatnuodq/IG0iqnc9r2dx6kcu434nQxkeagWxi\nw2VaUgjl41bflNnz3zvoOZC+/14bVk/bGECoU69JJMig/YMi4HjUwEzeBSsS3nOZ\nA3bV2n7MYqcJM83ebn1/5aSFoiFgMF6alp+rJq+NeFovOT+8jOHrJyNDPy8CjP/2\niEj7tosP1Gw2iKK2Jm7m7qEVF5PL94FZkmpuENt2jeW2/O9GdPDOTh1pr5TTjyOP\n68r7l4OjAgMBAAECggEAQQFamRKEWqEtrNli/4FcunXFbvbKKXiVXcQdjl4G3sZ9\nbiJAS7/FqXwgyw5cmzdqcKdD9FiDEytZjCAY4E2bNDy+yEQnXJOPbgvlRPHgnprX\nnEl/3puRzzy++fCTFlsoE0NwUi4pVS/Jov3Klu87GR4j5V/uaXhDuLnNnCoaw4od\n0l3NdXcx5OqfUV3cOBVwRx7UDKQUV5X73OcPMW0r73gvKiReogHRt6CEDTyGjXaS\nAily5RGX6lg43Wm2EQtLg4xFOaSybTnpySYUoBwF/blBHV//U4Iru54ck4DY2HLW\nzViG01asgE4HTf6wCiLh4fK8XeU4IcCyk6rZ33MVVQKBgQD1MVlQHsmH4Dk/jjOr\nsb9QxLkF618ujlZOY1nPZCyr+hy00TKTibHzaltbXkkCuDMg2wtxQxo5J8AlXxio\ngklF+P0Y8Mi7I6sl8vcarQTJoflBKNF7cgPMNg+aej+uk1mMZpXlo2Owuuz5iHiw\nWlOKGxIDUblwzYrNP2BznmVq1wKBgQDm+fbGU6b/ALElrYk1E1koRJOI6tfnX0W7\nSdEU1i4I5BJYd9waH1f79QjPpcZvaGlMSBayL1T/sZPEFrpqwC9UQY5WGKnblMDG\n9PPhs3Go1ueo2uf26uOnfGx1q7NXGJ+rGefMaY+EkiHqMarRBUGavxxn7pxgN4me\nyu6cL/BAFQKBgDtOkHfcuopvJenFj6H8AHac3tQbto4gR6f2SAbuCBAhE0h5QW6G\nY9Co7SgQikBqJZPQ59ehj3o7rzJa6i/4M5kFPNMHisYZPpCTUEnXh8ztrMiiAumF\nDn4apXOMFlM3uPVI6wD8oGRjEmbZJ7ggYQyKt7St09kBHo2+wqm0qntJAoGACjeW\nbfF3WqJaM7N4dUuUzw4xhIX25Po26HD8ebJ7uNL16Mnsh49JYhDVwfGwVG9G8SPj\nNSCY3vKo+ayTtHMp5M09kZtnsBnlaSeeviYk6fYPq017o1WCmn8LgS0GMt0Y+wWb\nVlR5D8EzFNv7lWFpJII9rG9GpY7vXIHXijsoon0CgYB/n3EJ92mdftW7HgX46Hwm\n4HnLewCd7YCU3o36qDkWYxh0ur/kTVgb6cHrWkzJdqSPDwDnUOVWDcdc2jg82wl1\nP9I9S4V75uVO9ro6plLn0DQK1xpO5iow4D5aps6ShLAS6FdW9OuyhfcE+cs6f/kb\nPLnePiNBF3+zwQFCjuzkQA==\n-----END PRIVATE KEY-----\n",
+  "client_email": "bot-inventario@inventariomicroempresa.iam.gserviceaccount.com",
+  "client_id": "100736806603909610838",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/bot-inventario%40inventariomicroempresa.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
