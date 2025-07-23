@@ -8,7 +8,7 @@ from collections import defaultdict
 app = Flask(__name__)
 
 # --- CONFIGURACIÓN ---
-TOKEN = 'TU_TOKEN_TELEGRAM'
+TOKEN = '7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE'
 bot = telebot.TeleBot(TOKEN)
 SHEET_NAME = 'Almacen'
 
