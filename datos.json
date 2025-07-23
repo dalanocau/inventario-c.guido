@@ -1,0 +1,14 @@
+{
+    "inventario": [
+        {"Producto": "A", "Stock": 10, "Precio": 5.0, "Ultima Actualización": "2025-07-21"},
+        {"Producto": "B", "Stock": 20, "Precio": 8.5, "Ultima Actualización": "2025-07-21"}
+    ],
+    "ventas_diarias": [
+        {"fecha": "2025-07-01", "total": 12},
+        {"fecha": "2025-07-02", "total": 18}
+    ],
+    "detalle_ventas": {
+        "2025-07-01": [{"producto": "A", "cantidad": 4}, {"producto": "B", "cantidad": 8}],
+        "2025-07-02": [{"producto": "A", "cantidad": 6}, {"producto": "B", "cantidad": 12}]
+    }
+}
