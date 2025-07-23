@@ -5,24 +5,22 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# --- TOKEN DEL BOT Y WEBHOOK ---
-TOKEN = '7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE'
+# --- CONFIGURACIÓN ---
+TOKEN = '7603600989:AAEFQdFpuC_1UF2VMegurjt8xHLGlmJkGQE'  # Reemplaza con tu token real
 bot = telebot.TeleBot(TOKEN)
 
 WEBHOOK_URL = f"https://inventario-c-guido.onrender.com/{TOKEN}"
 bot.remove_webhook()
 bot.set_webhook(url=WEBHOOK_URL)
 
-# --- AUTENTICACIÓN GOOGLE SHEETS ---
+# --- GOOGLE SHEETS ---
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", scope)
 client = gspread.authorize(creds)
-
-# --- Acceso a hojas ---
 sheet_mov = client.open("Almacen").worksheet("Movimientos")
 sheet_inv = client.open("Almacen").worksheet("Inventario")
 
-# --- APP FLASK ---
+# --- FLASK ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -30,7 +28,6 @@ def index():
     inventario = sheet_inv.get_all_values()
     headers = inventario[0]
     rows = inventario[1:]
-
     template = """
     <!DOCTYPE html>
     <html>
@@ -67,93 +64,110 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-# --- Estados temporales por usuario ---
+# --- ESTADO DE USUARIOS ---
 user_states = {}
 
-# --- BOT MANEJA MENSAJES ---
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
+# --- MANEJADOR PRINCIPAL ---
+@bot.message_handler(func=lambda m: True)
+def bot_handler(message):
     user_id = message.from_user.id
     text = message.text.strip()
 
-    # Consulta total del inventario
     if text.lower() == "hola total":
-        data = sheet_inv.get_all_values()[1:]  # omitimos encabezado
-        total = 0
-        detalles = []
-        for row in data:
-            producto = row[0]
-            try:
-                cantidad = int(row[1])
-                total += cantidad
-                detalles.append(f"{producto} = {cantidad}")
-            except:
-                continue
-        resumen = f"📦 Total stock: {total}\n" + "\n".join(detalles)
-        bot.reply_to(message, resumen)
+        mostrar_totales(message)
         return
 
-    # Revisar si se confirma un producto nuevo
     if user_id in user_states:
-        state = user_states[user_id]
-        if state["estado"] == "confirmar_nuevo":
-            if text.lower() in ["sí", "si"]:
-                producto = state["producto"]
-                cantidad = state["cantidad"]
-                origen = state["origen"]
-                tipo = "ENTRADA"
-                fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                sheet_inv.append_row([producto, cantidad])
-                sheet_mov.append_row([fecha, producto, cantidad, tipo, origen])
-                bot.reply_to(message, f"Producto '{producto}' agregado al inventario con stock {cantidad}.")
-            else:
-                bot.reply_to(message, "Operación cancelada. No se agregó el producto.")
-            del user_states[user_id]
+        manejar_flujo(message, user_id, text)
+        return
+
+    if text.lower() == "hola run":
+        markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.add("ENTRADA", "SALIDA")
+        bot.send_message(user_id, "¿Qué operación deseas realizar?", reply_markup=markup)
+        user_states[user_id] = {"estado": "tipo"}
+        return
+
+    bot.send_message(user_id, "Escribe 'Hola run' para comenzar o 'Hola Total' para ver el inventario.")
+
+def manejar_flujo(message, user_id, text):
+    estado = user_states[user_id]
+    
+    if estado["estado"] == "tipo":
+        if text not in ["ENTRADA", "SALIDA"]:
+            bot.send_message(user_id, "Selecciona ENTRADA o SALIDA.")
             return
-
-    # Procesar entrada o salida
-    tipo = None
-    if text.upper().startswith("ENTRADA:"):
-        tipo = "ENTRADA"
-    elif text.upper().startswith("SALIDA:"):
-        tipo = "SALIDA"
-
-    if tipo:
+        estado["tipo"] = text
+        estado["estado"] = "producto"
+        productos = list(set(sheet_inv.col_values(1)[1:]))  # Únicos sin encabezado
+        markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        for p in productos:
+            markup.add(p)
+        bot.send_message(user_id, "Selecciona el producto:", reply_markup=markup)
+    
+    elif estado["estado"] == "producto":
+        estado["producto"] = text
+        estado["estado"] = "cantidad"
+        bot.send_message(user_id, f"¿Cuántas unidades de '{text}'?")
+    
+    elif estado["estado"] == "cantidad":
         try:
-            contenido = text.split(":", 1)[1].strip()
-            partes = [x.strip() for x in contenido.split(",")]
+            cantidad = int(text)
+            estado["cantidad"] = cantidad
+            estado["estado"] = "origen"
+            bot.send_message(user_id, "¿Cuál es el origen?")
+        except ValueError:
+            bot.send_message(user_id, "Ingresa una cantidad válida (número entero).")
 
-            if len(partes) != 3:
-                bot.reply_to(message, "Formato incorrecto. Usa:\nENTRADA: Producto, cantidad, origen")
-                return
+    elif estado["estado"] == "origen":
+        estado["origen"] = text
+        producto = estado["producto"]
+        cantidad = estado["cantidad"]
+        origen = estado["origen"]
+        tipo = estado["tipo"]
+        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        productos = sheet_inv.col_values(1)
 
-            producto, cantidad, origen = partes
-            cantidad = int(cantidad)
-            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            celdas = sheet_inv.col_values(1)
-            if producto in celdas:
-                idx = celdas.index(producto) + 1
-                stock_actual = int(sheet_inv.cell(idx, 2).value)
-                nuevo_stock = stock_actual + cantidad if tipo == "ENTRADA" else stock_actual - cantidad
-                sheet_inv.update_cell(idx, 2, nuevo_stock)
-                sheet_mov.append_row([fecha, producto, cantidad, tipo, origen])
-                bot.reply_to(message, f"{tipo} registrada para {producto}. Stock actual: {nuevo_stock}")
+        if producto in productos:
+            idx = productos.index(producto) + 1
+            stock_actual = int(sheet_inv.cell(idx, 2).value)
+            nuevo_stock = stock_actual + cantidad if tipo == "ENTRADA" else stock_actual - cantidad
+            sheet_inv.update_cell(idx, 2, nuevo_stock)
+            sheet_mov.append_row([fecha, producto, cantidad, tipo, origen])
+            bot.send_message(user_id, f"{tipo} registrada para {producto}. Stock actual: {nuevo_stock}")
+            del user_states[user_id]
+        else:
+            if tipo == "ENTRADA":
+                bot.send_message(user_id, f"El producto '{producto}' no existe. ¿Deseas agregarlo? (sí / no)")
+                estado["estado"] = "confirmar_nuevo"
             else:
-                if tipo == "ENTRADA":
-                    user_states[user_id] = {
-                        "estado": "confirmar_nuevo",
-                        "producto": producto,
-                        "cantidad": cantidad,
-                        "origen": origen
-                    }
-                    bot.reply_to(message, f"El producto '{producto}' no existe en el inventario. ¿Deseas agregarlo? (sí / no)")
-                else:
-                    bot.reply_to(message, f"El producto '{producto}' no existe en el inventario. No se puede registrar salida.")
-        except Exception as e:
-            bot.reply_to(message, f"Error: {e}")
-    else:
-        bot.reply_to(message, "Formato no reconocido. Usa:\nENTRADA: Producto, cantidad, origen\nSALIDA: Producto, cantidad, origen")
+                bot.send_message(user_id, f"El producto '{producto}' no existe en el inventario. No se puede registrar salida.")
+                del user_states[user_id]
+
+    elif estado["estado"] == "confirmar_nuevo":
+        if text.lower() in ["sí", "si"]:
+            p = estado["producto"]
+            c = estado["cantidad"]
+            o = estado["origen"]
+            f = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            sheet_inv.append_row([p, c])
+            sheet_mov.append_row([f, p, c, "ENTRADA", o])
+            bot.send_message(user_id, f"Producto '{p}' agregado al inventario con {c} unidades.")
+        else:
+            bot.send_message(user_id, "Operación cancelada. No se agregó el producto.")
+        del user_states[user_id]
+
+def mostrar_totales(message):
+    datos = sheet_inv.get_all_records()
+    total = 0
+    detalle = []
+    for fila in datos:
+        nombre = fila['Producto'] if 'Producto' in fila else fila.get('producto', '¿?')
+        stock = int(fila['Stock']) if 'Stock' in fila else int(fila.get('stock', 0))
+        total += stock
+        detalle.append(f"{nombre}: {stock}")
+    mensaje = f"📦 *Total stock:* {total}\n\n" + "\n".join(detalle)
+    bot.send_message(message.chat.id, mensaje, parse_mode="Markdown")
 
 # --- INICIO ---
 if __name__ == '__main__':
