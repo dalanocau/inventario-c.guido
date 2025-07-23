@@ -1,140 +1,84 @@
-from flask import Flask, render_template, jsonify, request
-import pandas as pd
 import os
+from flask import Flask, request
+import telebot
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-from flask_cors import CORS
-import time
-import threading
-import telegram
 
-# --- Configuración Flask ---
+# Configuración
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+bot = telebot.TeleBot(TOKEN)
+
 app = Flask(__name__)
-CORS(app)
 
-# --- Autenticación con Google Sheets ---
+# Conectar con Google Sheets
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_name('credenciales.json', scope)
+cred_file = os.environ.get("GOOGLE_SHEETS_JSON", "credenciales.json")
+creds = ServiceAccountCredentials.from_json_keyfile_name(cred_file, scope)
 client = gspread.authorize(creds)
 
-# Hojas
-hoja_inv = client.open("Almacen").worksheet("Inventario")
-hoja_mov = client.open("Almacen").worksheet("Movimientos")
+sheet_mov = client.open("Inventario").worksheet("Movimientos")
+sheet_inv = client.open("Inventario").worksheet("Inventario")
 
-# --- Telegram Bot ---
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-bot = telegram.Bot(token=TOKEN)
-ultimo_update_id = None
+# Manejo de mensajes
+@bot.message_handler(commands=['start'])
+def start_message(message):
+    bot.reply_to(message, "¡Hola! Envíame un mensaje tipo:\n\nENTRADA: Producto, cantidad, origen\nSALIDA: Producto, cantidad, origen")
 
-# --- Función para actualizar stock ---
-def actualizar_stock(producto, cantidad, tipo, origen):
-    datos = hoja_inv.get_all_records()
-    actualizado = False
+@bot.message_handler(func=lambda m: True)
+def handle_message(message):
+    text = message.text.strip().upper()
+    tipo = None
 
-    for i, fila in enumerate(datos):
-        if fila['Producto'].strip().lower() == producto.strip().lower():
-            stock_actual = int(fila['Stock'])
-            nuevo_stock = stock_actual + cantidad if tipo == 'ENTRADA' else stock_actual - cantidad
-            hoja_inv.update_cell(i + 2, 2, nuevo_stock)
-            hoja_inv.update_cell(i + 2, 4, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-            actualizado = True
-            break
+    if text.startswith("ENTRADA:"):
+        tipo = "ENTRADA"
+    elif text.startswith("SALIDA:"):
+        tipo = "SALIDA"
 
-    # Registrar movimiento
-    hoja_mov.append_row([
-        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        producto,
-        cantidad,
-        tipo,
-        origen
-    ])
-    return actualizado
+    if tipo:
+        try:
+            partes = message.text.split(":", 1)[1].strip().split(",")
+            producto = partes[0].strip()
+            cantidad = int(partes[1].strip())
+            origen = partes[2].strip()
 
-# --- Función para manejar mensajes del bot ---
-def procesar_mensajes():
-    global ultimo_update_id
-    print("📡 Bot activo y esperando mensajes...")
+            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Registrar en hoja de movimientos
+            sheet_mov.append_row([fecha, producto, cantidad, tipo, origen])
 
-    while True:
-        updates = bot.get_updates(offset=ultimo_update_id, timeout=10)
-        for update in updates:
-            if not update.message:
-                continue
+            # Actualizar stock
+            celda = sheet_inv.find(producto)
+            fila = celda.row
+            stock_actual = int(sheet_inv.cell(fila, 2).value)
+            nuevo_stock = stock_actual + cantidad if tipo == "ENTRADA" else stock_actual - cantidad
+            sheet_inv.update_cell(fila, 2, nuevo_stock)
 
-            mensaje = update.message.text
-            chat_id = update.message.chat.id
-            update_id = update.update_id
-            ultimo_update_id = update_id + 1
+            bot.reply_to(message, f"{tipo} registrada para {producto} ({cantidad} unidades). Stock actualizado.")
 
-            try:
-                if mensaje.strip() == "/start":
-                    bot.send_message(chat_id=chat_id, text="🤖 ¡Hola! Envía un mensaje con el formato:\nENTRADA: Producto, cantidad, origen")
-                    continue
+        except Exception as e:
+            bot.reply_to(message, f"Error en el formato o producto no encontrado. Detalle: {e}")
+    else:
+        bot.reply_to(message, "Formato incorrecto. Usa:\nENTRADA: Producto, cantidad, origen\nSALIDA: Producto, cantidad, origen")
 
-                print(f"📩 Recibido: {mensaje}")
-                if ':' not in mensaje:
-                    bot.send_message(chat_id=chat_id, text="❌ Usa: ENTRADA: Producto, cantidad, origen")
-                    continue
+# Endpoint para Webhook
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
+    return "OK", 200
 
-                tipo_raw, detalles = mensaje.split(':', 1)
-                tipo = tipo_raw.strip().upper()
+# Endpoint base
+@app.route("/", methods=["GET"])
+def index():
+    return "Bot de inventario activo", 200
 
-                if tipo not in ['ENTRADA', 'SALIDA']:
-                    bot.send_message(chat_id=chat_id, text="❌ Especifica ENTRADA o SALIDA")
-                    continue
-
-                partes = [x.strip() for x in detalles.split(',')]
-                if len(partes) != 3:
-                    bot.send_message(chat_id=chat_id, text="❌ Usa: ENTRADA: Producto, cantidad, origen")
-                    continue
-
-                producto, cantidad_str, origen = partes
-                cantidad = int(cantidad_str)
-
-                if actualizar_stock(producto, cantidad, tipo, origen):
-                    bot.send_message(chat_id=chat_id, text=f"✅ {tipo} registrada: {producto} x{cantidad}")
-                else:
-                    bot.send_message(chat_id=chat_id, text=f"⚠️ Producto no encontrado: {producto}")
-
-            except Exception as e:
-                print(f"⚠️ Error: {e}")
-                bot.send_message(chat_id=chat_id, text="❌ Error procesando tu mensaje.")
-
-        time.sleep(3)
-
-# --- Iniciar hilo del bot ---
-hilo_bot = threading.Thread(target=procesar_mensajes)
-hilo_bot.daemon = True
-hilo_bot.start()
-
-# --- Interfaz Flask ---
-@app.route("/")
-def home():
-    datos = hoja_inv.get_all_records()
-    df = pd.DataFrame(datos)
-    return render_template("index.html", inventario=df)
-
-@app.route("/data")
-def data():
-    movimientos_data = hoja_mov.get_all_records()
-    movimientos_df = pd.DataFrame(movimientos_data)
-    ventas_diarias = movimientos_df.groupby("Fecha")["Cantidad"].sum().reset_index()
-    ventas_diarias.columns = ["fecha", "total"]
-    ventas_diarias = ventas_diarias.sort_values("fecha")
-
-    return jsonify({
-        "ventas_diarias": ventas_diarias.to_dict(orient="records")
-    })
-
-@app.route("/detalle/<fecha>")
-def detalle(fecha):
-    movimientos_data = hoja_mov.get_all_records()
-    df = pd.DataFrame(movimientos_data)
-    detalle = df[df["Fecha"].str.startswith(fecha)][["Producto", "Cantidad"]].to_dict(orient="records")
-    return jsonify(detalle)
-
-# --- Ejecutar Flask ---
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    import sys
+    import logging
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
+    # Configurar Webhook
+    url_webhook = os.environ.get("URL_RENDER")  # ej: https://inventario-c-guido.onrender.com
+    if url_webhook:
+        bot.remove_webhook()
+        bot.set_webhook(url=f"{url_webhook}/{TOKEN}")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
